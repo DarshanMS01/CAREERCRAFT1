@@ -152,6 +152,123 @@ exports.chat = async (req, res) => {
   }
 };
 
+// ─── Roadmap generator ────────────────────────────────────────────────────────
+const ROADMAP_PROMPT = (companyName, companyType, roles) =>
+  `You are a career advisor. Generate a detailed, structured career preparation roadmap for someone aiming to join "${companyName}" (a ${companyType} company).
+
+The company typically hires for these roles: ${roles}.
+
+Return the roadmap as valid JSON with this exact structure (no markdown, no code fences, just the raw JSON):
+{
+  "title": "Roadmap to ${companyName}",
+  "phases": [
+    {
+      "name": "Phase name",
+      "duration": "estimated time",
+      "steps": ["step 1", "step 2", "step 3"]
+    }
+  ],
+  "tips": ["tip 1", "tip 2", "tip 3"]
+}
+
+Include 4-5 phases covering: Foundations, Core Skills, Projects & Portfolio, Interview Prep, and Application Strategy. Make it specific to ${companyName}'s hiring process and tech stack.`;
+
+const getStaticRoadmap = (companyName, companyType) => ({
+  title: `Roadmap to ${companyName}`,
+  phases: [
+    {
+      name: '📚 Phase 1: Foundations',
+      duration: '4-6 weeks',
+      steps: [
+        'Master DSA fundamentals — arrays, strings, linked lists, trees, graphs',
+        'Learn Git, Linux basics, and command-line proficiency',
+        'Pick a primary language (Java/Python/C++) and master it'
+      ]
+    },
+    {
+      name: '⚙️ Phase 2: Core Skills',
+      duration: '6-8 weeks',
+      steps: [
+        `Study the core tech stack used at ${companyName}`,
+        'Learn System Design basics — load balancing, caching, databases',
+        'Build proficiency in frameworks relevant to the role (React, Spring Boot, etc.)'
+      ]
+    },
+    {
+      name: '🛠️ Phase 3: Projects & Portfolio',
+      duration: '4-6 weeks',
+      steps: [
+        'Build 2-3 real-world projects showcasing your skills',
+        'Deploy projects and create a polished GitHub profile',
+        'Write clear README files and document your work'
+      ]
+    },
+    {
+      name: '🎯 Phase 4: Interview Prep',
+      duration: '4-6 weeks',
+      steps: [
+        'Solve 150+ LeetCode problems (Easy → Medium → Hard)',
+        'Practice system design interviews with mock sessions',
+        `Research ${companyName}'s interview format and past questions`
+      ]
+    },
+    {
+      name: '🚀 Phase 5: Apply & Network',
+      duration: '2-4 weeks',
+      steps: [
+        `Apply through ${companyName}'s careers portal and LinkedIn`,
+        'Seek employee referrals — they 10x your chances',
+        `Tailor your resume to match ${companyType} company keywords`
+      ]
+    }
+  ],
+  tips: [
+    `${companyName} values problem-solving and clean code — practice explaining your thought process`,
+    'Consistency beats intensity — study daily rather than cramming',
+    'Join tech communities and attend hackathons for visibility'
+  ]
+});
+
+exports.roadmap = async (req, res) => {
+  try {
+    const { companyName, companyType = 'Product', roles = '' } = req.body;
+
+    if (!companyName) {
+      return res.status(400).json({ error: 'companyName is required' });
+    }
+
+    const prompt = ROADMAP_PROMPT(companyName, companyType, roles);
+
+    // Try AI providers in order
+    const providers = [
+      { name: 'groq', fn: callGroq },
+      { name: 'gemini', fn: callGemini },
+      { name: 'openai', fn: callOpenAI },
+      { name: 'deepseek', fn: callDeepSeek },
+    ];
+
+    for (const { name, fn } of providers) {
+      try {
+        const raw = await fn(prompt, []);
+        // Extract JSON from the response (handle markdown code fences)
+        const jsonMatch = raw.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const roadmap = JSON.parse(jsonMatch[0]);
+          return res.json({ roadmap, source: name });
+        }
+      } catch (err) {
+        console.warn(`[roadmap][${name}] failed:`, err.message);
+      }
+    }
+
+    // Fallback to static roadmap
+    return res.json({ roadmap: getStaticRoadmap(companyName, companyType), source: 'fallback' });
+  } catch (error) {
+    console.error('Roadmap error:', error);
+    res.status(500).json({ error: 'Failed to generate roadmap' });
+  }
+};
+
 // ─── Check which providers are configured ────────────────────────────────────
 exports.getProviders = (req, res) => {
   res.json({

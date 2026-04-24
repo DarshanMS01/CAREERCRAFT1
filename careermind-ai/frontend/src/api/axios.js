@@ -1,7 +1,8 @@
 import axios from 'axios';
 
+const isProduction = import.meta.env.PROD;
 const api = axios.create({
-  baseURL: 'http://localhost:5001/api', // Backend base URL
+  baseURL: import.meta.env.VITE_API_URL || (isProduction ? 'https://careermind-api.onrender.com/api' : 'http://localhost:5001/api'),
 });
 
 // Request interceptor to add JWT token

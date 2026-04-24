@@ -2,6 +2,9 @@ import React, { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { User, BookOpen, Briefcase, Code, FileText, Wand2, Download, Plus, Trash2, ChevronRight, ChevronLeft, Loader } from 'lucide-react';
 import api from '../api/axios';
+import { QRCodeSVG } from 'qrcode.react';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 
 const ResumeBuilder = () => {
   const [step, setStep] = useState(1);
@@ -19,71 +22,8 @@ const ResumeBuilder = () => {
 
   const resumeRef = useRef();
 
-  const handleDownloadPDF = async () => {
-    setIsDownloading(true);
-    try {
-      const element = resumeRef.current;
-      
-      // Dynamic imports
-      const html2canvasModule = await import('html2canvas');
-      const html2canvas = html2canvasModule.default || html2canvasModule;
-      
-      const jsPDFModule = await import('jspdf');
-      const jsPDF = jsPDFModule.jsPDF || jsPDFModule.default;
-
-      // Fix: Tailwind CSS v4 uses oklch() colors which html2canvas can't parse.
-      // The browser's getComputedStyle resolves oklch → rgb automatically,
-      // so we collect those resolved values and inject them into the clone.
-      const allOriginal = [element, ...element.querySelectorAll('*')];
-      const resolvedColors = allOriginal.map(el => {
-        const s = window.getComputedStyle(el);
-        return { color: s.color, bg: s.backgroundColor, borderColor: s.borderColor };
-      });
-
-      const canvas = await html2canvas(element, { 
-        scale: 2, 
-        useCORS: true, 
-        logging: false,
-        onclone: (_doc, clonedEl) => {
-          // Apply resolved RGB colors to cloned elements so html2canvas never sees oklch
-          const allCloned = [clonedEl, ...clonedEl.querySelectorAll('*')];
-          allCloned.forEach((el, i) => {
-            if (resolvedColors[i]) {
-              el.style.color = resolvedColors[i].color;
-              el.style.backgroundColor = resolvedColors[i].bg;
-              el.style.borderColor = resolvedColors[i].borderColor;
-            }
-          });
-        }
-      });
-      
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = pdfWidth;
-      const imgHeight = (canvas.height * pdfWidth) / canvas.width;
-
-      let heightLeft = imgHeight;
-      let position = 0;
-
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-      heightLeft -= pdfHeight;
-
-      while (heightLeft > 0) {
-        position = -(imgHeight - heightLeft);
-        pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pdfHeight;
-      }
-
-      pdf.save(`${resumeData.personal.fullName.replace(/\s+/g, '_')}_Resume.pdf`);
-    } catch (err) {
-      console.error('PDF download error:', err);
-      alert('PDF download failed: ' + err.message);
-    } finally {
-      setIsDownloading(false);
-    }
+  const handleDownloadPDF = () => {
+    window.print();
   };
 
   const handleEnhanceWithAI = async (type, text, itemIndex = null, section = null) => {
@@ -111,6 +51,32 @@ const ResumeBuilder = () => {
       alert('Failed to enhance text using AI. Try again later.');
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const [isAiMode, setIsAiMode] = useState(false);
+  const [rawText, setRawText] = useState('');
+  const [targetCompany, setTargetCompany] = useState('Product-Based (e.g., Google, Amazon)');
+  const [isParsing, setIsParsing] = useState(false);
+
+  const handleAiParse = async () => {
+    if (!rawText.trim()) return alert('Please paste your resume details first.');
+    setIsParsing(true);
+    try {
+      const response = await api.post('/resume/parse', { rawText, targetCompany });
+      const { parsedData } = response.data;
+      if (parsedData && parsedData.personal) {
+        setResumeData(parsedData);
+        setIsAiMode(false); // Switch back to normal view
+        setStep(1); // Reset to step 1
+      } else {
+        alert('Failed to parse the data properly.');
+      }
+    } catch (error) {
+      console.error(error);
+      alert('Failed to build resume using AI.');
+    } finally {
+      setIsParsing(false);
     }
   };
 
@@ -241,69 +207,147 @@ const ResumeBuilder = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 pt-24 pb-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-[1400px] mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8 h-[calc(100vh-140px)]">
+    <div className="min-h-screen bg-gray-100 pt-24 pb-12 px-4 sm:px-6 lg:px-8 print:bg-white print:p-0 print:m-0">
+      <div className="max-w-[1400px] mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8 h-[calc(100vh-140px)] print:block print:h-auto print:w-full">
         
         {/* Left Panel: Form */}
-        <div className="bg-white rounded-3xl shadow-sm border border-gray-200 flex flex-col overflow-hidden h-full">
-          {/* Progress Bar */}
+        <div className="bg-white rounded-3xl shadow-sm border border-gray-200 flex flex-col overflow-hidden h-full print:hidden">
+          {/* Progress Bar & Header */}
           <div className="bg-gray-50 border-b p-4 flex justify-between items-center">
-            <div className="flex gap-2">
-              {[1,2,3,4].map(s => (
-                <div key={s} className={`h-2 w-16 rounded-full transition-colors ${step >= s ? 'bg-[#16A34A]' : 'bg-gray-200'}`}></div>
-              ))}
+            {isAiMode ? (
+              <h2 className="font-bold text-gray-800 flex items-center gap-2">
+                <Wand2 className="text-purple-600" /> Advanced AI Builder
+              </h2>
+            ) : (
+              <div className="flex gap-2">
+                {[1,2,3,4].map(s => (
+                  <div key={s} className={`h-2 w-16 rounded-full transition-colors ${step >= s ? 'bg-[#16A34A]' : 'bg-gray-200'}`}></div>
+                ))}
+              </div>
+            )}
+            
+            <div className="flex items-center gap-3">
+              {!isAiMode && <span className="text-sm font-bold text-gray-600">Step {step} of 4</span>}
+              <button 
+                onClick={() => setIsAiMode(!isAiMode)}
+                className={`text-sm px-3 py-1.5 rounded-lg font-bold border transition-colors flex items-center gap-2 ${
+                  isAiMode ? 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200' : 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100'
+                }`}
+              >
+                {isAiMode ? 'Manual Entry Mode' : <><Wand2 size={14}/> AI Magic Build</>}
+              </button>
             </div>
-            <span className="text-sm font-bold text-gray-600">Step {step} of 4</span>
           </div>
 
           {/* Form Content */}
           <div className="p-8 flex-grow overflow-y-auto custom-scrollbar">
-            {renderFormStep()}
+            {isAiMode ? (
+              <div className="space-y-6 animate-fadeIn h-full flex flex-col">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900">Tailor Your Resume with AI</h3>
+                  <p className="text-sm text-gray-500 mt-1">Paste your raw text, LinkedIn export, or the generic template. Our AI will automatically parse it, optimize it for ATS, and generate a tailored resume.</p>
+                </div>
+                
+                <div>
+                  <label className="text-sm font-bold text-gray-700 block mb-2">Target Company / Role Type</label>
+                  <select 
+                    value={targetCompany}
+                    onChange={(e) => setTargetCompany(e.target.value)}
+                    className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-purple-500 outline-none bg-gray-50"
+                  >
+                    <option value="Product-Based (e.g., Google, Amazon)">Product-Based (e.g., Google, Microsoft - Focus on DSA & Impact)</option>
+                    <option value="Service-Based (e.g., TCS, Infosys)">Service-Based (e.g., TCS, Infosys - Focus on fundamentals & communication)</option>
+                    <option value="Startup">Startup (Focus on practical skills & multiple tech stacks)</option>
+                    <option value="Fintech (e.g., Razorpay, CRED)">Fintech (Focus on backend, security, scaling)</option>
+                  </select>
+                </div>
+
+                <div className="flex-1 flex flex-col">
+                  <label className="text-sm font-bold text-gray-700 block mb-2">Paste Raw Details / Experience Here</label>
+                  <textarea 
+                    className="w-full flex-1 p-4 border rounded-xl focus:ring-2 focus:ring-purple-500 outline-none text-sm resize-none font-mono bg-gray-50"
+                    placeholder="E.g. Name: John Doe&#10;Phone: 1234567890&#10;Skills: React, Node.js&#10;Projects: Built an E-commerce app..."
+                    value={rawText}
+                    onChange={(e) => setRawText(e.target.value)}
+                  ></textarea>
+                </div>
+              </div>
+            ) : (
+              renderFormStep()
+            )}
           </div>
 
           {/* Form Navigation */}
           <div className="border-t p-4 bg-gray-50 flex justify-between items-center">
-            <button 
-              onClick={() => setStep(step - 1)} 
-              disabled={step === 1}
-              className="px-4 py-2 border rounded-xl flex items-center gap-2 hover:bg-gray-100 disabled:opacity-50 transition-colors font-medium text-gray-700"
-            >
-              <ChevronLeft size={18} /> Back
-            </button>
-            <button 
-              onClick={() => step < 4 ? setStep(step + 1) : handleDownloadPDF()} 
-              disabled={isDownloading}
-              className="px-6 py-2 bg-[#16A34A] text-white rounded-xl flex items-center gap-2 hover:bg-[#22C55E] transition-colors font-bold shadow-md shadow-green-500/20 disabled:opacity-70"
-            >
-              {step === 4
-                ? isDownloading
-                  ? <><Loader size={18} className="animate-spin" /> Generating PDF...</>
-                  : <><Download size={18} /> Download PDF</>
-                : <>Next <ChevronRight size={18} /></>}
-            </button>
+            {isAiMode ? (
+              <>
+                <div></div>
+                <button 
+                  onClick={handleAiParse}
+                  disabled={isParsing}
+                  className="px-6 py-2 bg-purple-600 text-white rounded-xl flex items-center gap-2 hover:bg-purple-700 transition-colors font-bold shadow-md shadow-purple-500/20 disabled:opacity-70"
+                >
+                  {isParsing ? <><Loader size={18} className="animate-spin" /> Analyzing & Building...</> : <><Wand2 size={18} /> Generate Tailored Resume</>}
+                </button>
+              </>
+            ) : (
+              <>
+                <button 
+                  onClick={() => setStep(step - 1)} 
+                  disabled={step === 1}
+                  className="px-4 py-2 border rounded-xl flex items-center gap-2 hover:bg-gray-100 disabled:opacity-50 transition-colors font-medium text-gray-700"
+                >
+                  <ChevronLeft size={18} /> Back
+                </button>
+                <button 
+                  onClick={() => step < 4 ? setStep(step + 1) : handleDownloadPDF()} 
+                  disabled={isDownloading}
+                  className="px-6 py-2 bg-[#16A34A] text-white rounded-xl flex items-center gap-2 hover:bg-[#22C55E] transition-colors font-bold shadow-md shadow-green-500/20 disabled:opacity-70"
+                >
+                  {step === 4
+                    ? isDownloading
+                      ? <><Loader size={18} className="animate-spin" /> Generating PDF...</>
+                      : <><Download size={18} /> Download PDF</>
+                    : <>Next <ChevronRight size={18} /></>}
+                </button>
+              </>
+            )}
           </div>
         </div>
 
         {/* Right Panel: Live Preview */}
-        <div className="bg-gray-300 rounded-3xl overflow-hidden flex justify-center items-start p-8 shadow-inner overflow-y-auto custom-scrollbar relative">
+        <div className="bg-gray-300 rounded-3xl overflow-hidden flex justify-center items-start p-8 shadow-inner overflow-y-auto custom-scrollbar relative print:bg-white print:p-0 print:shadow-none print:overflow-visible">
           
           {/* A4 Paper Container */}
           <div 
             ref={resumeRef} 
-            className="bg-white shadow-2xl w-full max-w-[800px] shrink-0 p-10 font-sans text-gray-800"
+            className="bg-white shadow-2xl w-full max-w-[800px] shrink-0 p-10 font-sans text-gray-800 print:shadow-none print:w-full print:max-w-none print:p-0"
             style={{ minHeight: '1056px' }} // Standard Letter/A4 aspect roughly
           >
-            {/* Header */}
-            <div className="border-b-2 border-gray-800 pb-4 mb-5 text-center">
-              <h1 className="text-4xl font-extrabold uppercase tracking-wider text-gray-900">{resumeData.personal.fullName || 'YOUR NAME'}</h1>
-              <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 mt-2 text-sm text-gray-600 font-medium">
-                {resumeData.personal.email && <span>{resumeData.personal.email}</span>}
-                {resumeData.personal.phone && <span>• {resumeData.personal.phone}</span>}
-                {resumeData.personal.location && <span>• {resumeData.personal.location}</span>}
+            {/* Header with QR Code */}
+            <div className="border-b-2 border-gray-800 pb-4 mb-5 flex justify-between items-center">
+              <div className="flex-1 text-center pr-4">
+                <h1 className="text-4xl font-extrabold uppercase tracking-wider text-gray-900">{resumeData.personal.fullName || 'YOUR NAME'}</h1>
+                <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 mt-2 text-sm text-gray-600 font-medium">
+                  {resumeData.personal.email && <span>{resumeData.personal.email}</span>}
+                  {resumeData.personal.phone && <span>• {resumeData.personal.phone}</span>}
+                  {resumeData.personal.location && <span>• {resumeData.personal.location}</span>}
+                </div>
+                <div className="flex flex-wrap justify-center gap-x-4 mt-1 text-sm text-[#16A34A] font-semibold">
+                  {resumeData.personal.linkedin && <a href={`https://${resumeData.personal.linkedin}`}>{resumeData.personal.linkedin}</a>}
+                  {resumeData.personal.github && <span>• <a href={`https://${resumeData.personal.github}`}>{resumeData.personal.github}</a></span>}
+                </div>
               </div>
-              <div className="flex flex-wrap justify-center gap-x-4 mt-1 text-sm text-[#16A34A] font-semibold">
-                {resumeData.personal.linkedin && <a href={`https://${resumeData.personal.linkedin}`}>{resumeData.personal.linkedin}</a>}
-                {resumeData.personal.github && <span>• <a href={`https://${resumeData.personal.github}`}>{resumeData.personal.github}</a></span>}
+              
+              {/* QR Code (vCard) */}
+              <div className="shrink-0 print:block">
+                <QRCodeSVG 
+                  value={`BEGIN:VCARD\nVERSION:3.0\nN:${resumeData.personal.fullName}\nTEL:${resumeData.personal.phone}\nEMAIL:${resumeData.personal.email}\nURL:${resumeData.personal.linkedin}\nEND:VCARD`} 
+                  size={64} 
+                  level="L"
+                  includeMargin={false}
+                />
+                <p className="text-[8px] text-center mt-1 text-gray-400">Scan to Connect</p>
               </div>
             </div>
 

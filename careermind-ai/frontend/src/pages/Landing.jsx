@@ -40,9 +40,15 @@ const Landing = () => {
   return (
     <div className="overflow-hidden">
       {/* Hero Section */}
-      <section className="relative pt-32 pb-20 lg:pt-40 lg:pb-28 overflow-hidden bg-gradient-to-b from-[#F0FDF4]/50 to-white">
-        <div className="absolute top-0 right-0 -mr-40 -mt-40 w-96 h-96 rounded-full bg-[#16A34A]/5 blur-3xl"></div>
-        <div className="absolute top-40 left-0 -ml-40 w-72 h-72 rounded-full bg-[#EF4444]/5 blur-3xl"></div>
+      <section 
+        className="relative pt-32 pb-20 lg:pt-40 lg:pb-28 overflow-hidden bg-cover bg-center"
+        style={{ backgroundImage: "url('https://images.unsplash.com/photo-1517486808906-6ca8b3f04846?q=80&w=2049&auto=format&fit=crop')" }} // You can change this URL to '/your-image.png' if you put it in the public folder
+      >
+        {/* Frosted Glass Overlay */}
+        <div className="absolute inset-0 bg-white/85 backdrop-blur-[2px]"></div>
+
+        <div className="absolute top-0 right-0 -mr-40 -mt-40 w-96 h-96 rounded-full bg-[#16A34A]/20 blur-3xl"></div>
+        <div className="absolute top-40 left-0 -ml-40 w-72 h-72 rounded-full bg-[#EF4444]/10 blur-3xl"></div>
         
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 text-center">
           <motion.div 

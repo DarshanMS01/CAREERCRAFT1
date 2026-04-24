@@ -1,508 +1,257 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import api from '../api/axios';
-import {
-  Bot, User, Send, Loader2, Mic, MicOff,
-  Volume2, VolumeX, StopCircle, Trash2, ChevronDown, CheckCircle2, Circle
-} from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { 
+  ArrowLeft, Bot, ExternalLink, Brain, Code, FileText, 
+  Target, Lightbulb, Sparkles, ChevronRight, MessageSquare,
+  Maximize2, Minimize2, X
+} from 'lucide-react';
 
-// ─── Provider config ──────────────────────────────────────────────────────────
-const PROVIDERS = [
-  {
-    id: 'auto',
-    label: 'Auto (Best Available)',
-    icon: '⚡',
-    color: 'from-indigo-500 to-purple-600',
-    badge: 'bg-indigo-100 text-indigo-700',
-    desc: 'Tries Groq → Gemini → ChatGPT → DeepSeek'
-  },
-  {
-    id: 'gemini',
-    label: 'Google Gemini',
-    icon: '✦',
-    color: 'from-blue-500 to-cyan-500',
-    badge: 'bg-blue-100 text-blue-700',
-    desc: 'gemini-1.5-flash · Free tier available'
-  },
-  {
-    id: 'openai',
-    label: 'ChatGPT (OpenAI)',
-    icon: '🤖',
-    color: 'from-emerald-500 to-teal-500',
-    badge: 'bg-emerald-100 text-emerald-700',
-    desc: 'gpt-3.5-turbo · Paid API required'
-  },
-  {
-    id: 'deepseek',
-    label: 'DeepSeek',
-    icon: '🔍',
-    color: 'from-orange-500 to-red-500',
-    badge: 'bg-orange-100 text-orange-700',
-    desc: 'deepseek-chat · Budget-friendly'
-  },
-  {
-    id: 'groq',
-    label: 'Groq (Llama 3)',
-    icon: '⚡',
-    color: 'from-orange-400 to-pink-500',
-    badge: 'bg-orange-100 text-orange-600',
-    desc: 'llama-3.3-70b · Blazing fast'
-  },
+const FEATURES = [
+  { icon: <Code size={18} />, label: 'LeetCode Problems', desc: 'Get AI-guided solutions for coding challenges', color: 'from-blue-500 to-cyan-500' },
+  { icon: <Brain size={18} />, label: 'DSA Concepts', desc: 'Understand data structures & algorithms deeply', color: 'from-purple-500 to-pink-500' },
+  { icon: <FileText size={18} />, label: 'Code Review', desc: 'Get instant feedback on your code quality', color: 'from-orange-500 to-red-500' },
+  { icon: <Target size={18} />, label: 'Interview Prep', desc: 'Practice with real interview-style questions', color: 'from-green-500 to-emerald-500' },
 ];
 
-// ─── Speech synthesis ─────────────────────────────────────────────────────────
-const speak = (text, onEnd) => {
-  window.speechSynthesis.cancel();
-  const cleaned = text
-    .replace(/\*\*(.*?)\*\*/g, '$1')
-    .replace(/\*(.*?)\*/g, '$1')
-    .replace(/#{1,3} /g, '')
-    .replace(/•/g, '')
-    .replace(/\n+/g, '. ');
-
-  const utterance = new SpeechSynthesisUtterance(cleaned);
-  utterance.rate = 1.05;
-  utterance.pitch = 1.05;
-  utterance.volume = 1;
-  const voices = window.speechSynthesis.getVoices();
-  const preferred = voices.find(v =>
-    v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Karen')
-  ) || voices[0];
-  if (preferred) utterance.voice = preferred;
-  utterance.onend = onEnd || null;
-  window.speechSynthesis.speak(utterance);
-};
-
-// ─── Quick Prompts ────────────────────────────────────────────────────────────
-const QUICK_PROMPTS = [
-  { label: '🎯 Mock Interview', text: 'Start a mock DSA interview with me' },
-  { label: '📄 Resume Tips', text: 'Give me top resume tips for a fresher' },
-  { label: '🗺️ Career Roadmap', text: 'What career roadmap should I follow for web development?' },
-  { label: '💼 Internship Hunt', text: 'How do I find my first internship?' },
+const QUICK_ACTIONS = [
+  { label: '🎯 Two Sum', prompt: 'Explain the Two Sum problem and its optimal solution' },
+  { label: '🔗 Linked List', prompt: 'How to reverse a linked list?' },
+  { label: '🌳 Binary Tree', prompt: 'Explain BFS vs DFS in binary trees' },
+  { label: '📊 Dynamic Programming', prompt: 'Give me a beginner-friendly DP problem' },
+  { label: '⚡ Sorting', prompt: 'Compare QuickSort vs MergeSort' },
+  { label: '🧩 Sliding Window', prompt: 'Explain the sliding window technique' },
 ];
 
-// ─── Provider Badge ───────────────────────────────────────────────────────────
-function ProviderBadge({ source }) {
-  const p = PROVIDERS.find(x => x.id === source);
-  if (!p || source === 'fallback') return (
-    <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">🤖 Smart fallback</span>
-  );
-  return (
-    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${p.badge}`}>
-      {p.icon} {p.label}
-    </span>
-  );
-}
-
-// ─── Provider Selector Dropdown ───────────────────────────────────────────────
-function ProviderSelector({ selected, onChange, available }) {
-  const [open, setOpen] = useState(false);
-  const p = PROVIDERS.find(x => x.id === selected) || PROVIDERS[0];
-
-  return (
-    <div className="relative">
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 bg-white hover:border-gray-300 text-sm font-medium text-gray-700 transition-all shadow-sm"
-      >
-        <span>{p.icon}</span>
-        <span className="hidden sm:inline max-w-[120px] truncate">{p.label}</span>
-        <ChevronDown size={14} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
-      </button>
-
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: -8, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -8, scale: 0.96 }}
-            transition={{ duration: 0.15 }}
-            className="absolute right-0 top-full mt-2 w-72 bg-white border border-gray-200 rounded-2xl shadow-xl z-50 overflow-hidden"
-          >
-            <div className="p-2">
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider px-3 py-2">Select AI Provider</p>
-              {PROVIDERS.map(pv => {
-                const isAvailable = pv.id === 'auto' || available[pv.id];
-                return (
-                  <button
-                    key={pv.id}
-                    onClick={() => { onChange(pv.id); setOpen(false); }}
-                    className={`w-full flex items-start gap-3 px-3 py-2.5 rounded-xl text-left transition-all ${
-                      selected === pv.id
-                        ? 'bg-gray-50 border border-gray-200'
-                        : 'hover:bg-gray-50 border border-transparent'
-                    }`}
-                  >
-                    <span className="text-lg mt-0.5">{pv.icon}</span>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-gray-800">{pv.label}</span>
-                        {selected === pv.id && <CheckCircle2 size={13} className="text-green-500" />}
-                        {pv.id !== 'auto' && (
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
-                            isAvailable ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'
-                          }`}>
-                            {isAvailable ? '✓ Ready' : '⚠ No key'}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-gray-500 mt-0.5">{pv.desc}</p>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-            <div className="px-4 pb-3 pt-1 border-t border-gray-100">
-              <p className="text-xs text-gray-400">Add API keys in <code className="bg-gray-100 px-1 rounded">backend/.env</code></p>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-// ─── Main Agent Component ──────────────────────────────────────────────────────
 const Agent = () => {
+  useEffect(() => {
+    localStorage.setItem('visited_agent', 'true');
+  }, []);
+
   const { user } = useAuth();
-  const [messages, setMessages] = useState([{
-    role: 'assistant',
-    content: `👋 Hi ${user?.fullName?.split(' ')[0] || 'there'}! I'm CareerMind AI — your personal career advisor.\n\nI can help you with mock interviews, resume reviews, career roadmaps, and internship strategies.\n\nWhat would you like to work on today?`,
-  }]);
-  const [input, setInput]           = useState('');
-  const [isLoading, setIsLoading]   = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const [voiceEnabled, setVoiceEnabled] = useState(true);
-  const [isListening, setIsListening]   = useState(false);
-  const [source, setSource]         = useState(null);
-  const [provider, setProvider]     = useState('auto');
-  const [available, setAvailable]   = useState({ gemini: false, openai: false, deepseek: false, groq: false });
-
-  const messagesEndRef = useRef(null);
-  const recognitionRef = useRef(null);
-
-  // Fetch which providers are configured
-  useEffect(() => {
-    api.get('/agent/providers').then(r => setAvailable(r.data)).catch(() => {});
-  }, []);
-
-  // Auto-scroll
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isLoading]);
-
-  // Greet on load with voice
-  useEffect(() => {
-    if (voiceEnabled) {
-      window.speechSynthesis.getVoices();
-      setTimeout(() => { speak(messages[0].content, () => setIsSpeaking(false)); setIsSpeaking(true); }, 600);
-    }
-  }, []);
-
-  // Speech recognition
-  useEffect(() => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) return;
-    const r = new SR();
-    r.continuous = false;
-    r.interimResults = true;
-    r.lang = 'en-US';
-    r.onresult = (e) => setInput(Array.from(e.results).map(x => x[0].transcript).join(''));
-    r.onend = () => setIsListening(false);
-    r.onerror = () => setIsListening(false);
-    recognitionRef.current = r;
-  }, []);
-
-  const toggleMic = () => {
-    if (!recognitionRef.current) return alert('Speech recognition requires Chrome browser.');
-    if (isListening) { recognitionRef.current.stop(); setIsListening(false); }
-    else {
-      window.speechSynthesis.cancel(); setIsSpeaking(false);
-      recognitionRef.current.start(); setIsListening(true);
-    }
-  };
-
-  const stopSpeaking = () => { window.speechSynthesis.cancel(); setIsSpeaking(false); };
-
-  const sendMessage = useCallback(async (text) => {
-    const trimmed = text || input.trim();
-    if (!trimmed) return;
-
-    setMessages(prev => [...prev, { role: 'user', content: trimmed }]);
-    setInput('');
-    setIsLoading(true);
-    window.speechSynthesis.cancel();
-    setIsSpeaking(false);
-
-    try {
-      const history = messages.slice(-6);
-      const { data } = await api.post('/agent/chat', { message: trimmed, history, provider });
-      setSource(data.source);
-      setMessages(prev => [...prev, { role: 'assistant', content: data.reply }]);
-      if (voiceEnabled) {
-        setTimeout(() => { speak(data.reply, () => setIsSpeaking(false)); setIsSpeaking(true); }, 200);
-      }
-    } catch {
-      const err = "Sorry, I'm having trouble connecting. Please try again.";
-      setMessages(prev => [...prev, { role: 'assistant', content: err }]);
-      if (voiceEnabled) speak(err, () => setIsSpeaking(false));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [input, messages, voiceEnabled, provider]);
-
-  const clearChat = () => {
-    stopSpeaking();
-    setMessages([{ role: 'assistant', content: '👋 Chat cleared! Ready for a fresh start. What would you like to work on?' }]);
-  };
-
-  const renderContent = (content) =>
-    content.split('\n').map((line, i) => {
-      const html = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-      return <p key={i} className="leading-relaxed" dangerouslySetInnerHTML={{ __html: html || '&nbsp;' }} />;
-    });
-
-  const activeProvider = PROVIDERS.find(p => p.id === provider) || PROVIDERS[0];
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [activeTab, setActiveTab] = useState('chat');
+  const [showWelcome, setShowWelcome] = useState(true);
 
   return (
-    <div className="flex h-screen pt-16 bg-gray-50 overflow-hidden">
+    <div className="flex h-screen pt-16 bg-gray-950 overflow-hidden">
 
       {/* ── Sidebar ─────────────────────────────────────────────────────── */}
-      <div className="hidden lg:flex flex-col w-72 bg-white border-r border-gray-100 shadow-sm">
-        <div className="p-5 border-b border-gray-100">
-          <Link to="/dashboard" className="text-sm text-green-700 font-semibold hover:text-green-600 flex items-center gap-2 mb-4">
-            ← Back to Dashboard
-          </Link>
-          <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${activeProvider.color} text-white flex items-center justify-center shadow-lg text-lg`}>
-              {activeProvider.icon}
-            </div>
-            <div>
-              <h2 className="font-bold text-gray-800 text-sm">CareerMind Agent</h2>
-              <p className="text-xs text-green-600 flex items-center gap-1 font-medium">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                {activeProvider.label}
-              </p>
+      {!isFullscreen && (
+        <motion.div 
+          initial={{ x: -20, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          className="hidden lg:flex flex-col w-80 bg-gray-900 border-r border-gray-800"
+        >
+          {/* Header */}
+          <div className="p-5 border-b border-gray-800">
+            <Link to="/dashboard" className="text-sm text-emerald-400 font-semibold hover:text-emerald-300 flex items-center gap-2 mb-5 transition-colors">
+              <ArrowLeft size={16} /> Back to Dashboard
+            </Link>
+            <div className="flex items-center gap-3">
+              <div className="relative">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-400 to-cyan-500 text-white flex items-center justify-center shadow-lg shadow-emerald-500/20">
+                  <Bot size={24} />
+                </div>
+                <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500 border-2 border-gray-900" />
+                </span>
+              </div>
+              <div>
+                <h2 className="font-bold text-white text-base">AI Coding Coach</h2>
+                <p className="text-xs text-emerald-400 font-medium flex items-center gap-1">
+                  <Sparkles size={12} /> LeetCode AI Assistant
+                </p>
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* AI Provider Picker */}
-        <div className="p-5 border-b border-gray-100">
-          <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">AI Provider</h3>
-          <div className="space-y-1.5">
-            {PROVIDERS.map(pv => {
-              const isReady = pv.id === 'auto' || available[pv.id];
-              return (
-                <button
-                  key={pv.id}
-                  onClick={() => setProvider(pv.id)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all ${
-                    provider === pv.id
-                      ? 'bg-gray-100 border border-gray-300 font-semibold text-gray-800'
-                      : 'text-gray-600 hover:bg-gray-50 border border-transparent'
-                  }`}
+          {/* User Card */}
+          <div className="p-5 border-b border-gray-800">
+            <div className="bg-gradient-to-br from-gray-800 to-gray-800/50 rounded-2xl p-4 border border-gray-700/50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center text-white font-bold text-sm shadow-md">
+                  {user?.fullName?.charAt(0) || 'S'}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-white">{user?.fullName || 'Student'}</p>
+                  <p className="text-xs text-gray-400">{user?.email || 'Not logged in'}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Features */}
+          <div className="p-5 border-b border-gray-800">
+            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">What I Can Help With</h3>
+            <div className="space-y-2">
+              {FEATURES.map((f, i) => (
+                <div key={i} className="flex items-start gap-3 px-3 py-2.5 rounded-xl hover:bg-gray-800/50 transition-colors group cursor-default">
+                  <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${f.color} flex items-center justify-center text-white shadow-sm shrink-0`}>
+                    {f.icon}
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-200 group-hover:text-white transition-colors">{f.label}</p>
+                    <p className="text-xs text-gray-500">{f.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Quick Actions */}
+          <div className="p-5 flex-1 overflow-y-auto">
+            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Quick Topics</h3>
+            <div className="flex flex-wrap gap-2">
+              {QUICK_ACTIONS.map((a, i) => (
+                <button 
+                  key={i} 
+                  className="text-xs px-3 py-1.5 bg-gray-800 text-gray-300 rounded-full hover:bg-emerald-500/10 hover:text-emerald-400 hover:border-emerald-500/30 border border-gray-700 transition-all"
                 >
-                  <span className="text-base">{pv.icon}</span>
-                  <span className="flex-1 text-left text-sm leading-tight">{pv.label}</span>
-                  {pv.id === 'auto'
-                    ? <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-600 font-medium">auto</span>
-                    : isReady
-                      ? <CheckCircle2 size={13} className="text-green-500 shrink-0" />
-                      : <Circle size={13} className="text-gray-300 shrink-0" />
-                  }
+                  {a.label}
                 </button>
-              );
-            })}
+              ))}
+            </div>
           </div>
-          <p className="text-[10px] text-gray-400 mt-3 leading-relaxed">
-            Add keys in <code className="bg-gray-100 px-1 rounded">backend/.env</code>
-          </p>
-        </div>
 
-        {/* Voice Controls */}
-        <div className="p-5 border-b border-gray-100">
-          <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Voice Controls</h3>
-          <div className="space-y-2">
-            <button
-              onClick={() => { setVoiceEnabled(v => !v); if (isSpeaking) stopSpeaking(); }}
-              className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                voiceEnabled ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-gray-50 text-gray-500 border border-gray-200'
-              }`}
+          {/* Open in New Tab */}
+          <div className="p-4 border-t border-gray-800">
+            <a 
+              href="https://doc-analyzer--manjujakanahall.replit.app" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm text-gray-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-all border border-gray-700 hover:border-emerald-500/30"
             >
-              {voiceEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
-              {voiceEnabled ? 'Voice Enabled' : 'Voice Disabled'}
-            </button>
-            {isSpeaking && (
-              <button onClick={stopSpeaking} className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium bg-red-50 text-red-600 border border-red-200">
-                <StopCircle size={16} /> Stop Speaking
-              </button>
-            )}
+              <ExternalLink size={14} /> Open in New Tab
+            </a>
           </div>
-        </div>
+        </motion.div>
+      )}
 
-        {/* Quick Prompts */}
-        <div className="p-5 flex-1 overflow-y-auto">
-          <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Quick Topics</h3>
-          <div className="space-y-1.5">
-            {QUICK_PROMPTS.map((p, i) => (
-              <button key={i} onClick={() => sendMessage(p.text)} disabled={isLoading}
-                className="w-full text-left px-3 py-2.5 rounded-xl text-sm text-gray-700 hover:bg-green-50 hover:text-green-700 border border-transparent hover:border-green-200 transition-all disabled:opacity-50">
-                {p.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="p-4 border-t border-gray-100">
-          <button onClick={clearChat} className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-sm text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all">
-            <Trash2 size={14} /> Clear Chat
-          </button>
-        </div>
-      </div>
-
-      {/* ── Chat Area ───────────────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col bg-white overflow-hidden">
-
-        {/* Header */}
-        <div className="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between bg-white shadow-sm z-10">
+      {/* ── Main Chat Area ───────────────────────────────────────────────── */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        
+        {/* Top Bar */}
+        <div className="px-5 py-3 border-b border-gray-800 flex items-center justify-between bg-gray-900/80 backdrop-blur-md z-10">
           <div className="flex items-center gap-3">
             <div className="relative">
-              <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${activeProvider.color} text-white flex items-center justify-center shadow-md text-lg`}>
-                {activeProvider.icon}
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-cyan-500 text-white flex items-center justify-center shadow-md shadow-emerald-500/20">
+                <Bot size={20} />
               </div>
-              {isSpeaking && (
-                <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500" />
-                </span>
-              )}
+              <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500" />
+              </span>
             </div>
             <div>
-              <h2 className="font-bold text-gray-800 text-sm">CareerMind Agent</h2>
-              <p className="text-xs text-green-600 font-medium flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                {isSpeaking ? '🗣️ Speaking...' : isListening ? '🎤 Listening...' : 'Ready to help'}
+              <h2 className="font-bold text-white text-sm flex items-center gap-2">
+                CareerMind AI Coach
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">LIVE</span>
+              </h2>
+              <p className="text-xs text-gray-400 font-medium">
+                Powered by LeetCode AI · Ask anything about DSA & coding
               </p>
             </div>
           </div>
 
-          {/* Right controls */}
           <div className="flex items-center gap-2">
-            {/* Provider picker (mobile + desktop) */}
-            <ProviderSelector selected={provider} onChange={setProvider} available={available} />
             <button
-              onClick={() => { setVoiceEnabled(v => !v); }}
-              className={`p-2 rounded-lg transition-all ${voiceEnabled ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}
+              onClick={() => setIsFullscreen(!isFullscreen)}
+              className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+              title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
             >
-              {voiceEnabled ? <Volume2 size={18} /> : <VolumeX size={18} />}
+              {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
             </button>
+            <a 
+              href="https://doc-analyzer--manjujakanahall.replit.app" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors border border-emerald-500/20"
+            >
+              <ExternalLink size={14} /> Open Full View
+            </a>
           </div>
         </div>
 
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-4 sm:px-8 py-6 space-y-5 bg-gradient-to-b from-gray-50/60 to-white">
-
-          {/* Mobile quick chips */}
-          <div className="flex gap-2 overflow-x-auto pb-1 lg:hidden">
-            {QUICK_PROMPTS.map((p, i) => (
-              <button key={i} onClick={() => sendMessage(p.text)} disabled={isLoading}
-                className="shrink-0 text-xs px-3 py-1.5 bg-white border border-gray-200 rounded-full text-gray-600 hover:border-green-400 hover:text-green-700 transition-all shadow-sm disabled:opacity-50">
-                {p.label}
-              </button>
-            ))}
-          </div>
-
-          <AnimatePresence>
-            {messages.map((msg, idx) => (
-              <motion.div
-                key={idx}
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.22 }}
-                className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
+        {/* Welcome Overlay (shown first time) */}
+        <AnimatePresence>
+          {showWelcome && (
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 z-20 bg-gray-950/80 backdrop-blur-sm flex items-center justify-center p-8"
+              style={{ marginTop: '64px' }}
+            >
+              <motion.div 
+                initial={{ scale: 0.9, y: 20 }} 
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.95, y: 10 }}
+                className="bg-gray-900 rounded-3xl p-8 max-w-lg w-full border border-gray-700 shadow-2xl shadow-emerald-500/5"
               >
-                <div className={`w-9 h-9 shrink-0 rounded-full flex items-center justify-center shadow-sm mt-0.5 text-sm
-                  ${msg.role === 'user'
-                    ? 'bg-gradient-to-br from-green-600 to-emerald-700 text-white'
-                    : `bg-gradient-to-br ${activeProvider.color} text-white`
-                  }`}>
-                  {msg.role === 'user' ? <User size={15} /> : activeProvider.icon}
-                </div>
-
-                <div className={`max-w-[82%] md:max-w-[70%] px-5 py-3.5 rounded-2xl text-[14.5px] shadow-sm space-y-1
-                  ${msg.role === 'user'
-                    ? 'bg-gradient-to-br from-green-600 to-emerald-700 text-white rounded-tr-sm'
-                    : 'bg-white text-gray-800 border border-gray-100 rounded-tl-sm'
-                  }`}>
-                  {renderContent(msg.content)}
-                  {msg.role === 'assistant' && (
-                    <div className="flex items-center gap-3 mt-2 pt-1.5 border-t border-gray-50">
-                      <button onClick={() => { speak(msg.content, () => setIsSpeaking(false)); setIsSpeaking(true); }}
-                        className="flex items-center gap-1 text-xs text-gray-400 hover:text-green-600 transition-colors">
-                        <Volume2 size={11} /> Speak
-                      </button>
-                      {idx === messages.length - 1 && source && <ProviderBadge source={source} />}
-                    </div>
-                  )}
+                <div className="text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-400 to-cyan-500 text-white flex items-center justify-center shadow-lg shadow-emerald-500/30 mx-auto mb-4">
+                    <Bot size={32} />
+                  </div>
+                  <h2 className="text-2xl font-bold text-white mb-2">Welcome to AI Coding Coach! 🚀</h2>
+                  <p className="text-gray-400 text-sm mb-6">
+                    Hi <span className="text-emerald-400 font-semibold">{user?.fullName?.split(' ')[0] || 'there'}</span>! 
+                    I'm your personal LeetCode AI assistant. I can help you solve coding problems, 
+                    understand DSA concepts, review your code, and prepare for technical interviews.
+                  </p>
+                  <div className="grid grid-cols-2 gap-3 mb-6">
+                    {FEATURES.map((f, i) => (
+                      <div key={i} className="flex items-center gap-2 p-3 bg-gray-800/50 rounded-xl border border-gray-700/50">
+                        <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${f.color} flex items-center justify-center text-white shrink-0`}>
+                          {f.icon}
+                        </div>
+                        <span className="text-xs text-gray-300 font-medium">{f.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <button 
+                    onClick={() => setShowWelcome(false)}
+                    className="w-full py-3 bg-gradient-to-r from-emerald-500 to-cyan-500 text-white font-bold rounded-xl hover:from-emerald-400 hover:to-cyan-400 transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
+                  >
+                    <MessageSquare size={18} /> Start Chatting <ChevronRight size={18} />
+                  </button>
                 </div>
               </motion.div>
-            ))}
-          </AnimatePresence>
-
-          {isLoading && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-3">
-              <div className={`w-9 h-9 shrink-0 rounded-full bg-gradient-to-br ${activeProvider.color} text-white flex items-center justify-center shadow-sm text-sm`}>
-                {activeProvider.icon}
-              </div>
-              <div className="bg-white px-5 py-4 rounded-2xl rounded-tl-sm border border-gray-100 shadow-sm flex items-center gap-2">
-                {[0, 0.15, 0.3].map((d, i) => (
-                  <div key={i} className="w-2 h-2 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: `${d}s` }} />
-                ))}
-                <span className="text-xs text-gray-400 ml-1">{activeProvider.label} thinking...</span>
-              </div>
             </motion.div>
           )}
+        </AnimatePresence>
 
-          <div ref={messagesEndRef} />
+        {/* Embedded Chatbot */}
+        <div className="flex-1 relative bg-gray-950">
+          {/* Glowing border effect */}
+          <div className="absolute inset-0 rounded-none bg-gradient-to-b from-emerald-500/5 via-transparent to-cyan-500/5 pointer-events-none z-10" />
+          
+          <iframe
+            src="https://doc-analyzer--manjujakanahall.replit.app"
+            title="CareerMind AI Coding Coach"
+            className="w-full h-full border-0"
+            style={{ minHeight: '500px' }}
+            allow="microphone; camera; clipboard-read; clipboard-write"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads"
+          />
         </div>
 
-        {/* Input Bar */}
-        <div className="p-4 bg-white border-t border-gray-100 shadow-lg">
-          <form onSubmit={(e) => { e.preventDefault(); sendMessage(); }} className="flex items-center gap-2 max-w-4xl mx-auto">
-            <button type="button" onClick={toggleMic}
-              className={`shrink-0 p-3 rounded-full transition-all shadow-sm ${
-                isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-gray-100 text-gray-500 hover:bg-green-100 hover:text-green-600'
-              }`}>
-              {isListening ? <MicOff size={18} /> : <Mic size={18} />}
-            </button>
-
-            <input
-              type="text"
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              placeholder={isListening ? '🎤 Listening... speak now' : 'Ask me anything about your career...'}
-              className={`flex-1 px-5 py-3.5 rounded-full border text-gray-800 text-sm focus:outline-none transition-all ${
-                isListening
-                  ? 'border-red-400 bg-red-50 focus:ring-1 focus:ring-red-400'
-                  : 'border-gray-200 bg-gray-50 focus:border-green-500 focus:ring-1 focus:ring-green-500'
-              }`}
-              disabled={isLoading}
-            />
-
-            <button type="submit" disabled={!input.trim() || isLoading}
-              className={`shrink-0 p-3 bg-gradient-to-br ${activeProvider.color} text-white rounded-full hover:opacity-90 disabled:from-gray-300 disabled:to-gray-300 transition-all shadow-md disabled:shadow-none`}>
-              {isLoading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} className="translate-x-[1px]" />}
-            </button>
-          </form>
-
-          <p className="text-center text-xs text-gray-400 mt-2">
-            Using <span className="font-medium">{activeProvider.label}</span>
-            {source && source !== 'fallback' && <> · responded via <span className={`font-medium ${PROVIDERS.find(p=>p.id===source)?.badge?.replace('bg-','text-').replace('-100','') || ''}`}>{source}</span></>}
-            {' · '}Click 🔊 on any message to replay
-          </p>
+        {/* Bottom Status Bar */}
+        <div className="px-5 py-2 bg-gray-900 border-t border-gray-800 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-1.5 text-xs text-gray-500">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Connected to AI
+            </div>
+            <span className="text-xs text-gray-600">|</span>
+            <span className="text-xs text-gray-500">Powered by <span className="text-emerald-400 font-medium">LeetCode AI Coach</span></span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Lightbulb size={12} className="text-yellow-500" />
+            <span className="text-xs text-gray-500">Tip: Ask about any LeetCode problem by number or name</span>
+          </div>
         </div>
       </div>
     </div>

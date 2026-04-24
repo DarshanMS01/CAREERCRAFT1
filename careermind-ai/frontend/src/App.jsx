@@ -19,6 +19,8 @@ import Profile from './pages/Profile';
 import NotFound from './pages/NotFound';
 import AdminDashboard from './pages/AdminDashboard';
 import ResumeBuilder from './pages/ResumeBuilder';
+import Companies from './pages/Companies';
+import ProgressTracker from './pages/ProgressTracker';
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -71,6 +73,8 @@ function App() {
           <Route path="/register" element={<Register />} />
           <Route path="/notes" element={<Notes />} />
           <Route path="/courses" element={<Courses />} />
+          <Route path="/companies" element={<Companies />} />
+          <Route path="/progress" element={<ProtectedRoute><ProgressTracker /></ProtectedRoute>} />
           
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/agent" element={<ProtectedRoute><Agent /></ProtectedRoute>} />

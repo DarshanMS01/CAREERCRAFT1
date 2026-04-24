@@ -1,9 +1,14 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Star, Clock, User, Award, CheckCircle } from 'lucide-react';
 
 const Courses = () => {
+  useEffect(() => {
+    localStorage.setItem('visited_courses', 'true');
+  }, []);
+
+  const [filter, setFilter] = useState('All');
   const navigate = useNavigate();
   const coursesList = [
     { 
