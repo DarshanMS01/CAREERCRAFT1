@@ -1,11 +1,17 @@
-const User = require('../models/User');
+const User = require('../models/sqlUser');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 exports.register = async (req, res) => {
   try {
-    const { fullName, email, password, phone, college, branch, yearOfStudy, targetRole } = req.body;
-    let user = await User.findOne({ email });
+    const { fullName, email, password, phone, college, branch, yearOfStudy, targetRole, registrationSecret } = req.body;
+    
+    // Check Secret Key
+    if (registrationSecret !== process.env.REGISTRATION_SECRET) {
+      return res.status(401).json({ msg: 'Invalid Registration Secret Key. Please contact admin.' });
+    }
+
+    let user = await User.findOne({ where: { email } });
     if (user) return res.status(400).json({ msg: 'User already exists' });
 
     user = new User({ fullName, email, password, phone, college, branch, yearOfStudy, targetRole });
@@ -17,44 +23,56 @@ exports.register = async (req, res) => {
     const payload = { user: { id: user.id } };
     jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' }, (err, token) => {
       if (err) throw err;
-      const userObj = user.toObject();
+      const userObj = user.get({ plain: true });
       delete userObj.password;
       res.json({ token, user: userObj });
     });
   } catch (err) {
     console.error(err.message);
-    res.status(500).send('Server error');
+    res.status(500).json({ msg: 'Registration failed. Please try again.' });
   }
 };
 
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
-    let user = await User.findOne({ email });
-    if (!user) return res.status(400).json({ msg: 'Invalid Credentials' });
+
+    // Hardcoded Admin Check
+    if (email === 'harsha123' && password === 'harsha1432') {
+      const payload = { user: { id: 'admin', isAdmin: true } };
+      return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' }, (err, token) => {
+        if (err) throw err;
+        return res.json({ token, user: { id: 'admin', fullName: 'Administrator', email: 'harsha123', isAdmin: true } });
+      });
+    }
+
+    let user = await User.findOne({ where: { email } });
+    if (!user) return res.status(401).json({ msg: 'Account with this email does not exist' });
 
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(400).json({ msg: 'Invalid Credentials' });
+    if (!isMatch) return res.status(401).json({ msg: 'Incorrect password. Please try again.' });
 
     const payload = { user: { id: user.id } };
     jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' }, (err, token) => {
       if (err) throw err;
-      const userObj = user.toObject();
+      const userObj = user.get({ plain: true });
       delete userObj.password;
       res.json({ token, user: userObj });
     });
   } catch (err) {
     console.error(err.message);
-    res.status(500).send('Server error');
+    res.status(500).json({ msg: 'Login failed. Please try again later.' });
   }
 };
 
 exports.getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select('-password');
+    const user = await User.findByPk(req.user.id, {
+      attributes: { exclude: ['password'] }
+    });
     res.json({ user });
   } catch (err) {
     console.error(err.message);
-    res.status(500).send('Server Error');
+    res.status(500).json({ msg: 'Could not fetch user profile.' });
   }
 };

@@ -27,7 +27,8 @@ const InputField = ({ label, name, type = "text", icon: Icon, placeholder, requi
 const Register = () => {
   const [formData, setFormData] = useState({
     fullName: '', email: '', password: '', phone: '',
-    college: '', branch: '', yearOfStudy: '1st Year', targetRole: ''
+    college: '', branch: '', yearOfStudy: '1st Year', targetRole: '',
+    registrationSecret: ''
   });
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -44,7 +45,8 @@ const Register = () => {
       await register(formData);
       navigate('/dashboard');
     } catch (err) {
-      setError(err.response?.data?.msg || 'Registration failed');
+      console.error("Registration error:", err);
+      setError(err.response?.data?.msg || err.message || 'Registration failed');
     } finally {
       setIsLoading(false);
     }
@@ -96,6 +98,7 @@ const Register = () => {
             </div>
             
             <InputField label="Target Job Role" name="targetRole" icon={Briefcase} placeholder="Software Engineer" formData={formData} handleChange={handleChange} />
+            <InputField label="Registration Secret Key" name="registrationSecret" icon={Lock} placeholder="Enter provided key" formData={formData} handleChange={handleChange} />
           </div>
 
           <button

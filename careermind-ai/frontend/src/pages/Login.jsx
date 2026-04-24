@@ -18,10 +18,15 @@ const Login = () => {
     setIsLoading(true);
     setError('');
     try {
-      await login(formData.email, formData.password);
-      navigate('/dashboard');
+      const res = await login(formData.email, formData.password);
+      if (formData.email === 'harsha123') {
+        navigate('/admin');
+      } else {
+        navigate('/dashboard');
+      }
     } catch (err) {
-      setError(err.response?.data?.msg || 'Invalid email or password');
+      console.error("Login error:", err);
+      setError(err.response?.data?.msg || err.message || 'Invalid email or password');
     } finally {
       setIsLoading(false);
     }
@@ -59,7 +64,7 @@ const Login = () => {
                 </div>
                 <input
                   name="email"
-                  type="email"
+                  type="text"
                   required
                   className="appearance-none relative block w-full px-3 py-3 pl-10 border border-gray-300 placeholder-gray-400 text-gray-900 rounded-xl focus:outline-none focus:ring-[#16A34A] focus:border-[#16A34A] focus:z-10 sm:text-sm"
                   placeholder="john@example.com"

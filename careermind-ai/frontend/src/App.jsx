@@ -17,6 +17,8 @@ import Notes from './pages/Notes';
 import Courses from './pages/Courses';
 import Profile from './pages/Profile';
 import NotFound from './pages/NotFound';
+import AdminDashboard from './pages/AdminDashboard';
+import ResumeBuilder from './pages/ResumeBuilder';
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -74,6 +76,8 @@ function App() {
           <Route path="/agent" element={<ProtectedRoute><Agent /></ProtectedRoute>} />
           <Route path="/interview" element={<ProtectedRoute><Interview /></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+          <Route path="/admin" element={<AdminDashboard />} />
+          <Route path="/resume" element={<ProtectedRoute><ResumeBuilder /></ProtectedRoute>} />
           
           <Route path="*" element={<NotFound />} />
         </Routes>
